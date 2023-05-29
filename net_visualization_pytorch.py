@@ -5,6 +5,7 @@ import numpy as np
 from .image_utils import SQUEEZENET_MEAN, SQUEEZENET_STD
 from scipy.ndimage.filters import gaussian_filter1d
 
+
 def compute_saliency_maps(X, y, model):
     """
     Compute a class saliency map using the model for images X and labels y.
@@ -34,13 +35,20 @@ def compute_saliency_maps(X, y, model):
     ##############################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-    pass
+    scores = model(X)
+    scores_y = scores.gather(1, y.view(-1, 1)).squeeze()
+
+    model.zero_grad()
+    scores_y.backward(torch.ones_like(scores_y))
+
+    saliency = X.grad.data.abs().max(dim=1)[0]
 
     # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
     ##############################################################################
     #                             END OF YOUR CODE                               #
     ##############################################################################
     return saliency
+
 
 def make_fooling_image(X, target_y, model):
     """
@@ -76,13 +84,39 @@ def make_fooling_image(X, target_y, model):
     ##############################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-    pass
+    num_iterations = 100
+
+    for i in range(num_iterations):
+        print(f"Epoch: {i}")
+        scores = model(X_fooling)
+        scores_target = scores[0, target_y]
+
+        model.zero_grad()
+        scores_target.backward()
+
+        with torch.no_grad():
+            # Normalize the gradient
+            gradient = X_fooling.grad.data
+            gradient_norm = torch.norm(gradient)
+            normalized_gradient = gradient / gradient_norm
+
+            # Update the fooling image
+            X_fooling += learning_rate * normalized_gradient
+
+        # Reset the gradient for the next iteration
+        X_fooling.grad.zero_()
+
+        # Check if the model is fooled
+        fooling_predictions = model(X_fooling).argmax(dim=1)
+        if fooling_predictions.item() == target_y:
+            break
 
     # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
     ##############################################################################
     #                             END OF YOUR CODE                               #
     ##############################################################################
     return X_fooling
+
 
 def class_visualization_update_step(img, model, target_y, l2_reg, learning_rate):
     ########################################################################
@@ -94,7 +128,40 @@ def class_visualization_update_step(img, model, target_y, l2_reg, learning_rate)
     ########################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-    pass
+    # Initialize fooling image as a clone of X and require gradient
+    X_fooling = img.clone()
+    X_fooling = X_fooling.requires_grad_()
+
+    num_iterations = 100
+
+    for i in range(num_iterations):
+        scores = model(X_fooling)
+        scores_target = scores[0, target_y]
+
+        # Calculate L2 regularization term
+        l2_regularization = l2_reg * torch.norm(X_fooling)
+
+        model.zero_grad()
+        scores_target.backward()
+
+        with torch.no_grad():
+            # Normalize the gradient
+            gradient = X_fooling.grad.data
+            gradient_norm = torch.norm(gradient)
+            normalized_gradient = gradient / gradient_norm
+
+            # Update the fooling image
+            X_fooling += learning_rate * (normalized_gradient + l2_regularization)
+
+        # Reset the gradient for the next iteration
+        X_fooling.grad.zero_()
+
+        # Check if the model is fooled
+        fooling_predictions = model(X_fooling).argmax(dim=1)
+        if fooling_predictions.item() == target_y:
+            break
+
+    return X_fooling
 
     # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
     ########################################################################
@@ -103,29 +170,35 @@ def class_visualization_update_step(img, model, target_y, l2_reg, learning_rate)
 
 
 def preprocess(img, size=224):
-    transform = T.Compose([
-        T.Resize(size),
-        T.ToTensor(),
-        T.Normalize(mean=SQUEEZENET_MEAN.tolist(),
-                    std=SQUEEZENET_STD.tolist()),
-        T.Lambda(lambda x: x[None]),
-    ])
+    transform = T.Compose(
+        [
+            T.Resize(size),
+            T.ToTensor(),
+            T.Normalize(mean=SQUEEZENET_MEAN.tolist(), std=SQUEEZENET_STD.tolist()),
+            T.Lambda(lambda x: x[None]),
+        ]
+    )
     return transform(img)
 
+
 def deprocess(img, should_rescale=True):
-    transform = T.Compose([
-        T.Lambda(lambda x: x[0]),
-        T.Normalize(mean=[0, 0, 0], std=(1.0 / SQUEEZENET_STD).tolist()),
-        T.Normalize(mean=(-SQUEEZENET_MEAN).tolist(), std=[1, 1, 1]),
-        T.Lambda(rescale) if should_rescale else T.Lambda(lambda x: x),
-        T.ToPILImage(),
-    ])
+    transform = T.Compose(
+        [
+            T.Lambda(lambda x: x[0]),
+            T.Normalize(mean=[0, 0, 0], std=(1.0 / SQUEEZENET_STD).tolist()),
+            T.Normalize(mean=(-SQUEEZENET_MEAN).tolist(), std=[1, 1, 1]),
+            T.Lambda(rescale) if should_rescale else T.Lambda(lambda x: x),
+            T.ToPILImage(),
+        ]
+    )
     return transform(img)
+
 
 def rescale(x):
     low, high = x.min(), x.max()
     x_rescaled = (x - low) / (high - low)
     return x_rescaled
+
 
 def blur_image(X, sigma=1):
     X_np = X.cpu().clone().numpy()
@@ -133,6 +206,7 @@ def blur_image(X, sigma=1):
     X_np = gaussian_filter1d(X_np, sigma, axis=3)
     X.copy_(torch.Tensor(X_np).type_as(X))
     return X
+
 
 def jitter(X, ox, oy):
     """
