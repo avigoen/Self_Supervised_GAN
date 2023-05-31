@@ -53,7 +53,7 @@ def discriminator(seed=None):
     ##############################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-    return nn.Sequential(
+    model = nn.Sequential(
         nn.Linear(784, 256),
         nn.LeakyReLU(),
         nn.Linear(256, 256),
@@ -85,7 +85,7 @@ def generator(noise_dim=NOISE_DIM, seed=None):
     ##############################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-    return nn.Sequential(
+    model = nn.Sequential(
         nn.Linear(noise_dim, 1024),
         nn.ReLU(True),
         nn.Linear(1024, 1024),
@@ -340,7 +340,7 @@ def run_a_gan(
                 continue
             D_solver.zero_grad()
             real_data = x.type(dtype)
-            logits_real = D(2 * (real_data - 0.5)).type(dtype)
+            logits_real = D(2 * (real_data - 0.5))
 
             g_fake_seed = sample_noise(batch_size, noise_size).type(dtype)
             fake_images = G(g_fake_seed).detach()
