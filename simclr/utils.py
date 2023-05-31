@@ -1,8 +1,4 @@
-import pandas as pd
 import torch
-import torch.optim as optim
-from thop import profile, clever_format
-from torch.utils.data import DataLoader
 from tqdm import tqdm
 from .contrastive_loss import *
 
@@ -46,7 +42,8 @@ def train(
         # Run x_i and x_j through the model to get out_left, out_right.              #
         # Then compute the loss using simclr_loss_vectorized.                        #
         ##############################################################################
-        out_left, out_right = model.forward([x_i, x_j])
+        out_left = model(x_i)
+        out_right = model(x_j)
         loss = simclr_loss_vectorized(out_left, out_right, temperature, device)
         ##############################################################################
         #                               END OF YOUR CODE                             #
